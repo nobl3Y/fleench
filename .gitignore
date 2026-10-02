@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+local.properties
+secrets.properties
+**/secrets.properties
+
+# Build outputs
+*.apk
+*.aab
+saved_builds/
+
+# Temp scratch files
+temp_dict.db
+test_dict.db
+*.tmp
+*.log

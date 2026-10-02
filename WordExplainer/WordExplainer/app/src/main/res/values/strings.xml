@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Fleench</string>
+    <string name="service_desc">Screen reading companion. Drag the reticle over words to instantly define and explain them.</string>
+</resources>
