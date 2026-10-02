@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://android.com"><img src="https://img.shields.io/badge/Platform-Android%209.0%2B-blue?style=flat-square" alt="Platform" /></a>
   <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Language-Kotlin-purple?style=flat-square" alt="Language" /></a>
-  <a href="https://github.com/ogboNoble001/fleench"><img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square" alt="Build" /></a>
+  <a href="https://github.com/nobl3Y/fleench"><img src="https://img.shields.io/badge/Build-Passing-brightgreen?style=flat-square" alt="Build" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-slate?style=flat-square" alt="License" /></a>
 </p>
 
@@ -68,7 +68,7 @@ Fleench relies on Android's native Accessibility Service framework for one reaso
 
 ### Installation
 
-1. Download the latest [**Fleench-v1.0.0.apk**](https://github.com/ogboNoble001/fleench/releases/download/v1.0.0/Fleench-v1.0.0.apk) from the [Releases](https://github.com/ogboNoble001/fleench/releases) section.
+1. Download the latest [**Fleench-v1.0.0.apk**](https://github.com/nobl3Y/fleench/releases/download/v1.0.0/Fleench-v1.0.0.apk) from the [Releases](https://github.com/nobl3Y/fleench/releases) section.
 2. Open the APK on your Android device and install it.
 3. Open the **Fleench** app.
 4. Customize your bubble size, resting side, or peek width if desired.
@@ -83,7 +83,7 @@ To compile the APK yourself using Android Studio or the command line:
 
 ```bash
 # Clone the repository
-git clone https://github.com/ogboNoble001/fleench.git
+git clone https://github.com/nobl3Y/fleench.git
 cd fleench/WordExplainer/WordExplainer
 
 # Build debug APK
