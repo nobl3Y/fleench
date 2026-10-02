@@ -68,7 +68,7 @@ Fleench relies on Android's native Accessibility Service framework for one reaso
 
 ### Installation
 
-1. Download the latest `Fleench-debug.apk` from the [Releases](https://github.com/ogboNoble001/fleench/releases) section.
+1. Download the latest [**Fleench-v1.0.0.apk**](https://github.com/ogboNoble001/fleench/releases/download/v1.0.0/Fleench-v1.0.0.apk) from the [Releases](https://github.com/ogboNoble001/fleench/releases) section.
 2. Open the APK on your Android device and install it.
 3. Open the **Fleench** app.
 4. Customize your bubble size, resting side, or peek width if desired.
@@ -98,6 +98,7 @@ The compiled APK will be located at:
 ## Technical Architecture
 
 - **Platform**: 100% Kotlin, targeting Android 14 (API 34) with backward compatibility to Android 9 (API 28).
+- **Universal Text Recognition Engine**: Bundled, on-device Google ML Kit Latin Text Recognition (100% offline and private) with automatic fallback to the Android AccessibilityNodeInfo tree for legacy platforms.
 - **Overlay Window**: Custom `TYPE_ACCESSIBILITY_OVERLAY` managed through `WindowManager` with zero third-party UI dependencies.
 - **Touch & Hit-Testing**: Y-weighted Euclidean distance snapped selection engine with reading-order node filtering.
 - **Layout Animation**: Hardware-accelerated `WindowInsetsAnimation.Callback` synchronized with the Android soft input method (IME) for smooth keyboard handling.
