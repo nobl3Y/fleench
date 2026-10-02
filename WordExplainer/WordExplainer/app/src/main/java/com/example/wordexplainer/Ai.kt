@@ -177,7 +177,8 @@ object Ai {
             append("- A neologism, portmanteau, or made-up word\n")
             append("- A name, brand, acronym, or abbreviation\n")
             append("Never say 'I cannot define this' or 'this is not a standard word'. ")
-            append("If it's slang or informal, explain what it means in that usage.\n")
+            append("If it's slang or informal, explain what it means in that usage. ")
+            append("If the term specifically inquires about real-time live events or current corporate ownership, note briefly in one sentence that Fleench provides reading explanations and does not fetch real-time live web data.\n")
             if (contextSnippet.isNotBlank()) {
                 append("Context it appeared in: \"${contextSnippet.take(800).trim()}\"\n")
             }

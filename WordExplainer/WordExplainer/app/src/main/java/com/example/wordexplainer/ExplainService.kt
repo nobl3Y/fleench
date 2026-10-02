@@ -726,6 +726,7 @@ class ExplainService : AccessibilityService() {
             append("Keep responses concise, direct, and conversational. ")
             append("If the user's question relates to the previously highlighted text or its context, answer using that context. ")
             append("If the user asks for a standalone definition, asks general knowledge, or changes the topic, answer them directly and accurately on that topic — do NOT force an artificial connection to the original text. ")
+            append("If the inquiry specifically requires live, up-to-the-minute real-time data or breaking news (such as current stock quotes, live scores, or recent corporate ownership changes), answer accurately based on your knowledge and include a brief 1-sentence note that Fleench provides reading explanations and does not browse live real-time web data. For standard definitions, concepts, or conversation, do not add this note. ")
             if (contextInfo.isNotBlank()) {
                 append("\nOriginal context for reference if relevant:\n\"\"\"\n${contextInfo.take(2000)}\n\"\"\"\n")
             }

@@ -27,6 +27,10 @@ android {
         val geminiKeys = secrets.getProperty("GEMINI_API_KEYS", "")
         buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
         buildConfigField("String", "GEMINI_API_KEYS", "\"$geminiKeys\"")
+
+        ndk {
+            abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a"))
+        }
     }
 
     buildFeatures {
