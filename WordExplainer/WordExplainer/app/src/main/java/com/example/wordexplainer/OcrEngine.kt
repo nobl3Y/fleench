@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Build
+import android.util.Log
 import android.view.Display
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
@@ -15,32 +16,24 @@ import java.util.concurrent.atomic.AtomicReference
 /**
  * Wraps Google ML Kit's bundled (offline) Latin text recognizer.
  *
- * On API 30+ it captures the screen via [AccessibilityService.takeScreenshot] and builds
- * a pixel-accurate [Snapshot] from the result so every word's on-screen bounding box
- * comes directly from the rendered pixels, not from the accessibility tree.
- *
- * On older API levels it returns null so the caller can fall back to the
- * [Snapshot.build] / AccessibilityNodeInfo path.
+ * Captures screen pixels via [AccessibilityService.takeScreenshot] (API 30+)
+ * and builds a pixel-accurate [Snapshot] sorted in true top-to-bottom reading order.
  */
 object OcrEngine {
 
-    // Lazily initialized once — reused for every snapshot to avoid cold-start overhead.
+    private const val TAG = "FleenchOCR"
+
     private val recognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
-    /**
-     * Returns a [Snapshot] built from on-device OCR, or null if:
-     * - Device is below API 30 (takeScreenshot unavailable).
-     * - Screenshot fails for any reason.
-     * - ML Kit processing fails or times out.
-     *
-     * Must NOT be called on the main/UI thread — it blocks until ML Kit finishes.
-     */
     fun buildSnapshot(service: AccessibilityService): Snapshot? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Log.d(TAG, "Device SDK is below Android 11 (R). Screenshot API unavailable.")
+            return null
+        }
 
-        val bitmapRef  = AtomicReference<Bitmap?>(null)
+        val bitmapRef = AtomicReference<Bitmap?>(null)
         val screenLatch = CountDownLatch(1)
 
         try {
@@ -51,73 +44,103 @@ object OcrEngine {
                     override fun onSuccess(screenshot: AccessibilityService.ScreenshotResult) {
                         try {
                             val hw = screenshot.hardwareBuffer
-                            // Convert the HardwareBuffer to a software Bitmap for ML Kit.
-                            bitmapRef.set(
-                                Bitmap.wrapHardwareBuffer(hw, null)
-                                    ?.copy(Bitmap.Config.ARGB_8888, false)
-                            )
+                            val cs = screenshot.colorSpace
+                            val wrapped = Bitmap.wrapHardwareBuffer(hw, cs)
+                            val softCopy = wrapped?.copy(Bitmap.Config.ARGB_8888, false)
                             hw.close()
-                        } catch (_: Throwable) {}
+                            bitmapRef.set(softCopy)
+                            Log.d(TAG, "Screenshot captured successfully: ${softCopy?.width}x${softCopy?.height}")
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "Error wrapping screenshot hardware buffer", t)
+                        }
                         screenLatch.countDown()
                     }
 
                     override fun onFailure(errorCode: Int) {
+                        Log.e(TAG, "takeScreenshot failed with error code: $errorCode")
                         screenLatch.countDown()
                     }
                 }
             )
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            Log.e(TAG, "Exception calling takeScreenshot", t)
             return null
         }
 
-        if (!screenLatch.await(2, TimeUnit.SECONDS)) return null
+        if (!screenLatch.await(2, TimeUnit.SECONDS)) {
+            Log.w(TAG, "Screenshot timed out after 2 seconds.")
+            return null
+        }
+
         val bitmap = bitmapRef.get() ?: return null
 
-        // The HardwareBuffer can theoretically differ from screen px if the device
-        // reports a different logical vs physical resolution. Scale to be safe.
-        val dm      = service.resources.displayMetrics
-        val scaleX  = dm.widthPixels.toFloat()  / bitmap.width
-        val scaleY  = dm.heightPixels.toFloat() / bitmap.height
+        val dm = service.resources.displayMetrics
+        val scaleX = dm.widthPixels.toFloat() / bitmap.width
+        val scaleY = dm.heightPixels.toFloat() / bitmap.height
 
         return try {
-            fromBitmap(bitmap, scaleX, scaleY)
-        } catch (_: Throwable) {
+            fromBitmap(bitmap, scaleX, scaleY, dm.density)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Error processing bitmap through ML Kit", t)
             null
         } finally {
             bitmap.recycle()
         }
     }
 
-    // ── ML Kit processing ─────────────────────────────────────────────────────
-
-    private fun fromBitmap(bitmap: Bitmap, scaleX: Float, scaleY: Float): Snapshot? {
-        val image      = InputImage.fromBitmap(bitmap, 0)
-        val resultRef  = AtomicReference<com.google.mlkit.vision.text.Text?>(null)
-        val ocrLatch   = CountDownLatch(1)
+    private fun fromBitmap(bitmap: Bitmap, scaleX: Float, scaleY: Float, density: Float): Snapshot? {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val resultRef = AtomicReference<com.google.mlkit.vision.text.Text?>(null)
+        val ocrLatch = CountDownLatch(1)
 
         recognizer.process(image)
             .addOnSuccessListener { visionText ->
                 resultRef.set(visionText)
                 ocrLatch.countDown()
             }
-            .addOnFailureListener {
+            .addOnFailureListener { e ->
+                Log.e(TAG, "ML Kit OCR failed", e)
                 ocrLatch.countDown()
             }
 
-        if (!ocrLatch.await(3, TimeUnit.SECONDS)) return null
+        if (!ocrLatch.await(3, TimeUnit.SECONDS)) {
+            Log.w(TAG, "ML Kit OCR recognition timed out.")
+            return null
+        }
+
         val visionText = resultRef.get() ?: return null
+
+        // Exclude system status bar (top 42dp) and navigation gesture bar (bottom 48dp)
+        val statusBarPx = (42 * density).toInt()
+        val navBarPx = (48 * density).toInt()
+        val screenHeightPx = (bitmap.height * scaleY).toInt()
+
+        // 1. Sort blocks in physical screen reading order (Top-to-Bottom, Left-to-Right)
+        val sortedBlocks = visionText.textBlocks
+            .filter { tb ->
+                val box = tb.boundingBox?.scaled(scaleX, scaleY) ?: return@filter false
+                // Skip status bar at top and navigation bar at bottom
+                box.bottom > statusBarPx && box.top < (screenHeightPx - navBarPx)
+            }
+            .sortedWith(
+                compareBy(
+                    // Group blocks whose tops are within ~14dp into the same line band
+                    { (it.boundingBox?.top ?: 0) / maxOf(1, (14 * density).toInt()) },
+                    { it.boundingBox?.left ?: 0 }
+                )
+            )
 
         val blocks = ArrayList<Block>()
         var blockIdx = 0
 
-        for (tb in visionText.textBlocks) {
+        for (tb in sortedBlocks) {
             val blockBounds = tb.boundingBox?.scaled(scaleX, scaleY) ?: continue
-            val wordList    = ArrayList<Word>()
+            val wordList = ArrayList<Word>()
 
             for (line in tb.lines) {
                 for (element in line.elements) {
                     val wBounds = element.boundingBox?.scaled(scaleX, scaleY) ?: continue
-                    val wText   = element.text
+                    val wText = element.text.trim()
                     if (wText.isNotBlank()) {
                         wordList.add(Word(wText, wBounds, blockIdx))
                     }
@@ -130,10 +153,9 @@ object OcrEngine {
             blockIdx++
         }
 
+        Log.d(TAG, "ML Kit produced ${blocks.size} geometrically sorted blocks with ${blocks.sumOf { it.words.size }} words.")
         return if (blocks.isEmpty()) null else Snapshot(blocks)
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private fun Rect.scaled(sx: Float, sy: Float): Rect = Rect(
         (left   * sx).toInt(),

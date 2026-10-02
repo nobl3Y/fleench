@@ -1386,9 +1386,30 @@ class ExplainService : AccessibilityService() {
             s.blockAt(targetX, targetY) ?: 0
         } else { selWords.firstOrNull()?.block ?: 0 }
 
-        val startBlock = maxOf(0, anchorBlockIdx - 6)
-        val endBlock   = minOf(s.blocks.size, anchorBlockIdx + 5)
-        val surroundingContext = s.blocks.subList(startBlock, endBlock).joinToString("\n") { it.text }
+        val preceding = s.blocks.subList(maxOf(0, anchorBlockIdx - 4), anchorBlockIdx)
+            .map { it.text.trim() }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+
+        val subsequent = s.blocks.subList(minOf(s.blocks.size, anchorBlockIdx + 1), minOf(s.blocks.size, anchorBlockIdx + 5))
+            .map { it.text.trim() }
+            .filter { it.isNotBlank() }
+            .joinToString("\n")
+
+        val surroundingContext = buildString {
+            if (preceding.isNotBlank()) {
+                appendLine("[Content Above / Earlier on Screen]:")
+                appendLine(preceding)
+                appendLine()
+            }
+            appendLine("[Highlighted Text Area]:")
+            appendLine(contextBlock)
+            if (subsequent.isNotBlank()) {
+                appendLine()
+                appendLine("[Content Below / Subsequent on Screen]:")
+                appendLine(subsequent)
+            }
+        }.trim()
 
         buildPopupCard(selectedText, contextBlock, surroundingContext, isSingle)
     }
