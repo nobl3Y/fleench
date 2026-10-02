@@ -64,14 +64,14 @@ Fleench relies on Android's native Accessibility Service framework for one reaso
 ### Prerequisites
 
 - An Android device running Android 9.0 (Pie / API 28) or higher.
-- A free Groq API key or Gemini API key for real-time explanations.
+- Ready to go out of the box — zero account creation or setup required.
 
 ### Installation
 
 1. Download the latest `Fleench-debug.apk` from the [Releases](https://github.com/ogboNoble001/fleench/releases) section.
 2. Open the APK on your Android device and install it.
 3. Open the **Fleench** app.
-4. Add your API key and customize your bubble size or resting position if desired.
+4. Customize your bubble size, resting side, or peek width if desired.
 5. Tap the toggle to enable the Fleench Accessibility Service.
    *(On Android 13+, if the system restricts the service, go to Settings &gt; Apps &gt; Fleench &gt; tap the three dots in the top-right &gt; choose "Allow restricted settings", then turn the service on).*
 

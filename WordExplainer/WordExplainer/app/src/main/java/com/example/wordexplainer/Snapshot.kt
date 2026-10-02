@@ -73,45 +73,51 @@ class Snapshot(val blocks: List<Block>) {
          *  - Its class is NOT a pure image type (ImageView, ImageButton — these use
          *    contentDescription for alt-text, not for readable content)
          */
-        private fun isTextNode(n: AccessibilityNodeInfo): Boolean {
-            val cls = n.className?.toString() ?: ""
-            // Reject image/icon classes regardless of what text they carry
-            if (cls.contains("ImageView", ignoreCase = true) ||
-                cls.contains("ImageButton", ignoreCase = true)) return false
-            // Accept if either .text or .contentDescription has readable content
-            val text = n.text?.toString()
-            val desc = n.contentDescription?.toString()
-            return !text.isNullOrBlank() || !desc.isNullOrBlank()
-        }
-
         fun build(root: AccessibilityNodeInfo?, ownPkg: String): Snapshot {
             val raws = ArrayList<Raw>()
 
-            fun walk(n: AccessibilityNodeInfo?) {
-                if (n == null) return
+            fun walk(n: AccessibilityNodeInfo?): Boolean {
+                if (n == null) return false
                 try {
-                    if (n.isPassword) return
-                    if (n.packageName?.toString() == ownPkg) return
+                    if (n.isPassword) return false
+                    if (n.packageName?.toString() == ownPkg) return false
 
                     val r = Rect()
                     n.getBoundsInScreen(r)
+                    val hasValidBounds = r.width() > 0 && r.height() > 0 && r.bottom > 0
 
-                    if (isTextNode(n) && !r.isEmpty && n.isVisibleToUser) {
-                        // Prefer .text; fall back to .contentDescription (React Native, WebView, X/Twitter)
-                        val rawText = (n.text ?: n.contentDescription)?.toString()
-                        if (!rawText.isNullOrBlank()) {
-                            raws.add(Raw(rawText, r, charRects(n, rawText.length)))
+                    var childHadText = false
+                    val count = n.childCount
+                    for (i in 0 until count) {
+                        try {
+                            val child = n.getChild(i)
+                            if (walk(child)) {
+                                childHadText = true
+                            }
+                        } catch (_: Exception) {}
+                    }
+
+                    val rawTextVal = n.text?.toString()?.trim()
+                    val rawDescVal = n.contentDescription?.toString()?.trim()
+                    val hasText = !rawTextVal.isNullOrBlank()
+                    val hasDesc = !rawDescVal.isNullOrBlank()
+                    val cls = n.className?.toString() ?: ""
+                    val isImage = cls.contains("ImageView", ignoreCase = true) ||
+                                  cls.contains("ImageButton", ignoreCase = true)
+
+                    if (hasValidBounds && !isImage) {
+                        if (hasText) {
+                            raws.add(Raw(rawTextVal!!, r, charRects(n, rawTextVal.length)))
+                            return true
+                        } else if (hasDesc && !childHadText) {
+                            raws.add(Raw(rawDescVal!!, r, charRects(n, rawDescVal.length)))
+                            return true
                         }
                     }
 
-                    for (i in 0 until n.childCount) {
-                        try {
-                            val child = n.getChild(i)
-                            walk(child)
-                        } catch (_: Exception) {}
-                    }
+                    return childHadText || hasText
                 } catch (_: Exception) {
-                    // Node was recycled by Android between calls — skip it safely
+                    return false
                 }
             }
 
@@ -152,17 +158,51 @@ class Snapshot(val blocks: List<Block>) {
             if (has) return Rect(u.left.toInt(), u.top.toInt(), u.right.toInt(), u.bottom.toInt())
 
             val b = r.rect
-            val lines = if (b.height() < 90) 1 else max(1, (b.height() / 60f).roundToInt())
-            val cpl = max(1, ceil(r.text.length / lines.toFloat()).toInt())
-            val line = min(range.first / cpl, lines - 1)
+            val rawText = r.text
+            val lines = rawText.split('\n')
+            val numLines = lines.size
+            if (numLines > 1) {
+                var charCount = 0
+                var targetLineIdx = 0
+                var charInLine = 0
+                for ((idx, line) in lines.withIndex()) {
+                    val lineLen = line.length + 1 // +1 for the '\n'
+                    if (range.first < charCount + lineLen) {
+                        targetLineIdx = idx
+                        charInLine = range.first - charCount
+                        break
+                    }
+                    charCount += lineLen
+                }
+                val lh = max(1, b.height() / numLines)
+                val currentLineText = lines.getOrElse(targetLineIdx) { "" }
+                val lineChars = max(1, currentLineText.length)
+                val cw = b.width().toFloat() / lineChars
+                val left = b.left + charInLine * cw
+                val wordLen = range.last - range.first + 1
+                val top = b.top + targetLineIdx * lh
+                return Rect(
+                    left.toInt(),
+                    top,
+                    min(b.right.toFloat(), left + wordLen * cw).toInt(),
+                    top + lh
+                )
+            }
+
+            val estLines = if (b.height() < 90) 1 else max(1, (b.height() / 60f).roundToInt())
+            val cpl = max(1, ceil(rawText.length / estLines.toFloat()).toInt())
+            val line = min(range.first / cpl, estLines - 1)
+            val charInLine = range.first % cpl
             val cw = b.width().toFloat() / cpl
-            val left = b.left + (range.first % cpl) * cw
-            val lh = b.height() / lines
+            val left = b.left + charInLine * cw
+            val lh = max(1, b.height() / estLines)
+            val wordLen = range.last - range.first + 1
+            val top = b.top + line * lh
             return Rect(
                 left.toInt(),
-                b.top + line * lh,
-                min(b.right.toFloat(), left + (range.last - range.first + 1) * cw).toInt(),
-                b.top + (line + 1) * lh
+                top,
+                min(b.right.toFloat(), left + wordLen * cw).toInt(),
+                top + lh
             )
         }
     }
