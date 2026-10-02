@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.animation.ValueAnimator
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -998,6 +1000,17 @@ class ExplainService : AccessibilityService() {
                 setOnClickListener { onClick() }
             }
 
+        val copyBtn = iconBtn(R.drawable.ic_copy) {
+            val toCopy = selectedText.trim()
+            if (toCopy.isNotEmpty()) {
+                val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                val clip = ClipData.newPlainText("Fleench Selection", toCopy)
+                cm?.setPrimaryClip(clip)
+                Toast.makeText(this@ExplainService, "Copied \"$toCopy\"", Toast.LENGTH_SHORT).show()
+            }
+        }
+        header.addView(copyBtn, LinearLayout.LayoutParams(dp(34), dp(34)).apply { marginStart = dp(6) })
+
         var currentDefText = prefillDef
         val speakBtn = iconBtn(R.drawable.ic_volume) {
             tts?.speak(selectedText, TextToSpeech.QUEUE_FLUSH, null, null)
@@ -1123,12 +1136,19 @@ class ExplainService : AccessibilityService() {
         // Show any pre-existing chat history (restore mode)
         for ((role, msg) in chatHistory) addChatBubble(role, msg)
 
-        // Scroll area — user scrolls manually, no auto-scroll
+        // Scroll area
         val scroll = ScrollView(this).apply {
             addView(bodyLL)
             isVerticalScrollBarEnabled = true
         }
         card.addView(scroll, LinearLayout.LayoutParams(-1, dp(200)).apply { bottomMargin = dp(8) })
+
+        // Automatically slide to bottom message blob when opening a card with chat history
+        if (chatHistory.isNotEmpty()) {
+            scroll.post {
+                scroll.fullScroll(View.FOCUS_DOWN)
+            }
+        }
 
         // ── Handle drag physics ──────────────────────────────────────────────
         var downTouchY = 0f
@@ -1345,6 +1365,11 @@ class ExplainService : AccessibilityService() {
             .translationY(0f)
             .setDuration(240)
             .setInterpolator(DecelerateInterpolator())
+            .withEndAction {
+                if (chatHistory.isNotEmpty()) {
+                    scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+                }
+            }
             .start()
     }
 
