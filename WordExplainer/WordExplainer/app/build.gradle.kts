@@ -39,3 +39,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    // ML Kit Text Recognition — bundled model, works 100% offline, no Play Services required
+    implementation("com.google.mlkit:text-recognition:16.0.1")
+}

@@ -470,6 +470,14 @@ class ExplainService : AccessibilityService() {
         ui.postDelayed({
             Thread {
                 try {
+                    // ── Primary path: pixel-accurate OCR via ML Kit (API 30+) ──────────
+                    val ocrSnap = try { OcrEngine.buildSnapshot(this@ExplainService) } catch (_: Throwable) { null }
+                    if (ocrSnap != null && ocrSnap.words.isNotEmpty()) {
+                        ui.post { snap = ocrSnap }
+                        return@Thread
+                    }
+
+                    // ── Fallback: Accessibility tree (API <30 or OCR failure) ──────────
                     val root = getActiveApplicationRoot() ?: return@Thread
                     val s = Snapshot.build(root, packageName)
                     ui.post { snap = s }
@@ -1199,40 +1207,6 @@ class ExplainService : AccessibilityService() {
         askLabel.addView(askLabelTv)
         card.addView(askLabel, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) })
 
-        // ── sendUserMessage function ─────────────────────────────────────────
-        fun sendUserMessage(q: String) {
-            chatHistory.add("user" to q)
-            addChatBubble("user", q)
-
-            val thinkTv = TextView(this).apply {
-                text = "Thinking…"
-                textSize = 14.5f
-                typeface = OutfitFonts.regular(this@ExplainService)
-                setTextColor(0x66FFFFFF.toInt())
-                setPadding(0, dp(4), 0, dp(4))
-            }
-            val thinkLp = LinearLayout.LayoutParams(-1, -2).apply {
-                topMargin = dp(10)
-                bottomMargin = dp(6)
-            }
-            bodyLL.addView(thinkTv, thinkLp)
-            val thinkShimmer = createShimmer(thinkTv)
-
-            Thread {
-                val sysP = chatSystemPrompt(surroundingContext)
-                val reply = try { Ai.chat(prefs.key, sysP, chatHistory) }
-                           catch (ex: Exception) { "Could not reach AI: ${ex.message}" }
-                ui.post {
-                    thinkShimmer.cancel()
-                    thinkTv.paint.shader = null
-                    bodyLL.removeView(thinkTv)
-                    chatHistory.add("assistant" to reply)
-                    addChatBubble("assistant", reply)
-                    scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
-                }
-            }.start()
-        }
-
         // ── Input row embedded directly in the card ──────────────────────────
         val inputRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1261,17 +1235,65 @@ class ExplainService : AccessibilityService() {
             setImageResource(R.drawable.ic_send)
             imageTintList = android.content.res.ColorStateList.valueOf(0xFF94A3B8.toInt())
             setPadding(dp(4), dp(4), dp(4), dp(4))
-            setOnClickListener {
-                val q = inputEt.text.toString().trim()
-                if (q.isNotEmpty()) {
-                    inputEt.setText("")
-                    sendUserMessage(q)
-                }
-            }
         }
         inputRow.addView(sendBtn, LinearLayout.LayoutParams(dp(28), dp(28)))
 
         card.addView(inputRow, LinearLayout.LayoutParams(-1, -2))
+
+        // ── sendUserMessage — declared AFTER inputEt and sendBtn so Kotlin can see them ──
+        fun sendUserMessage(q: String) {
+            chatHistory.add("user" to q)
+            addChatBubble("user", q)
+
+            // Show "Receiving answer…" hint, keep cursor blinking, lock send button.
+            inputEt.hint = "Receiving answer\u2026"
+            inputEt.setHintTextColor(0x99FFFFFF.toInt())
+            sendBtn.isEnabled = false
+            sendBtn.imageTintList = android.content.res.ColorStateList.valueOf(0x33FFFFFF.toInt())
+
+            val thinkTv = TextView(this).apply {
+                text = "Thinking\u2026"
+                textSize = 14.5f
+                typeface = OutfitFonts.regular(this@ExplainService)
+                setTextColor(0x66FFFFFF.toInt())
+                setPadding(0, dp(4), 0, dp(4))
+            }
+            val thinkLp = LinearLayout.LayoutParams(-1, -2).apply {
+                topMargin = dp(10)
+                bottomMargin = dp(6)
+            }
+            bodyLL.addView(thinkTv, thinkLp)
+            val thinkShimmer = createShimmer(thinkTv)
+
+            Thread {
+                val sysP = chatSystemPrompt(surroundingContext)
+                val reply = try { Ai.chat(prefs.key, sysP, chatHistory) }
+                           catch (ex: Exception) { "Could not reach AI: ${ex.message}" }
+                ui.post {
+                    thinkShimmer.cancel()
+                    thinkTv.paint.shader = null
+                    bodyLL.removeView(thinkTv)
+                    chatHistory.add("assistant" to reply)
+                    addChatBubble("assistant", reply)
+                    scroll.post { scroll.fullScroll(View.FOCUS_DOWN) }
+
+                    // Restore input to ready state.
+                    inputEt.hint = "Ask anything about this\u2026"
+                    inputEt.setHintTextColor(0x55FFFFFF.toInt())
+                    sendBtn.isEnabled = true
+                    sendBtn.imageTintList = android.content.res.ColorStateList.valueOf(0xFF94A3B8.toInt())
+                }
+            }.start()
+        }
+
+        // Wire click listener now that sendUserMessage exists.
+        sendBtn.setOnClickListener {
+            val q = inputEt.text.toString().trim()
+            if (q.isNotEmpty()) {
+                inputEt.setText("")
+                sendUserMessage(q)
+            }
+        }
 
 
 
