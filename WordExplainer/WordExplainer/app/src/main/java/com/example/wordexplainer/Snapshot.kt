@@ -17,7 +17,8 @@ class Snapshot(val blocks: List<Block>) {
     /**
      * Word at (x,y). Y-distance counts 2× so the crosshair snaps to the correct
      * LINE first, then finds the nearest word on that line.
-     * Effective snap radius ≈ 140px.
+     * Snaps strictly when the crosshair is on or immediately adjacent to a word.
+     * Empty whitespace and margins return null so no phantom selection occurs.
      */
     fun wordAt(x: Int, y: Int): Word? {
         var best: Word? = null
@@ -29,18 +30,10 @@ class Snapshot(val blocks: List<Block>) {
             val d = hypot(dx.toFloat(), dy.toFloat() * 2f)
             if (d < bestD) { bestD = d; best = w }
         }
-        // 140px * 2 (Y-weight) → threshold 280f in weighted metric
-        if (bestD <= 280f) return best
+        // Strict snap tolerance (~80f in Y-weighted metric ≈ 40px unweighted, ~14-16dp).
+        // If cursor is beyond this tolerance (whitespace, margins, blank space), return null.
+        if (bestD <= 80f) return best
 
-        // If no word within threshold, check if (x,y) is inside any block
-        val bi = blockAt(x, y)
-        if (bi != null && blocks[bi].words.isNotEmpty()) {
-            return blocks[bi].words.minByOrNull { w ->
-                val dx = max(max(w.rect.left - x, x - w.rect.right), 0)
-                val dy = max(max(w.rect.top - y, y - w.rect.bottom), 0)
-                hypot(dx.toFloat(), dy.toFloat() * 2f)
-            }
-        }
         return null
     }
 

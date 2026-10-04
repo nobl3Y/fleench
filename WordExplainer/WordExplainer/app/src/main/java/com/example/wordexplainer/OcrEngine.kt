@@ -1,11 +1,14 @@
 package com.example.wordexplainer
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Build
+import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Display
+import android.view.WindowManager
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
@@ -74,12 +77,22 @@ object OcrEngine {
 
         val bitmap = bitmapRef.get() ?: return null
 
-        val dm = service.resources.displayMetrics
-        val scaleX = dm.widthPixels.toFloat() / bitmap.width
-        val scaleY = dm.heightPixels.toFloat() / bitmap.height
+        val wm = service.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        val screenBounds: Rect = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wm.currentWindowMetrics.bounds
+        } else {
+            val realDm = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(realDm)
+            Rect(0, 0, realDm.widthPixels, realDm.heightPixels)
+        }
+
+        val scaleX = screenBounds.width().toFloat() / bitmap.width
+        val scaleY = screenBounds.height().toFloat() / bitmap.height
+        val density = service.resources.displayMetrics.density
 
         return try {
-            fromBitmap(bitmap, scaleX, scaleY, dm.density)
+            fromBitmap(bitmap, scaleX, scaleY, density)
         } catch (t: Throwable) {
             Log.e(TAG, "Error processing bitmap through ML Kit", t)
             null
@@ -116,19 +129,23 @@ object OcrEngine {
         val screenHeightPx = (bitmap.height * scaleY).toInt()
 
         // 1. Sort blocks in physical screen reading order (Top-to-Bottom, Left-to-Right)
+        // Ensure sorting uses the exact scaled coordinates to avoid ordering jitter
         val sortedBlocks = visionText.textBlocks
-            .filter { tb ->
-                val box = tb.boundingBox?.scaled(scaleX, scaleY) ?: return@filter false
+            .mapNotNull { tb ->
+                val box = tb.boundingBox?.scaled(scaleX, scaleY) ?: return@mapNotNull null
                 // Skip status bar at top and navigation bar at bottom
-                box.bottom > statusBarPx && box.top < (screenHeightPx - navBarPx)
+                if (box.bottom > statusBarPx && box.top < (screenHeightPx - navBarPx)) {
+                    Pair(tb, box)
+                } else null
             }
             .sortedWith(
                 compareBy(
                     // Group blocks whose tops are within ~14dp into the same line band
-                    { (it.boundingBox?.top ?: 0) / maxOf(1, (14 * density).toInt()) },
-                    { it.boundingBox?.left ?: 0 }
+                    { it.second.top / maxOf(1, (14 * density).toInt()) },
+                    { it.second.left }
                 )
             )
+            .map { it.first }
 
         val blocks = ArrayList<Block>()
         var blockIdx = 0
