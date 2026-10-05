@@ -1289,7 +1289,7 @@ class ExplainService : AccessibilityService() {
             Thread {
                 val sysP = chatSystemPrompt(surroundingContext)
                 val reply = try { Ai.chat(prefs.key, sysP, chatHistory) }
-                           catch (ex: Exception) { "Could not reach AI: ${ex.message}" }
+                           catch (ex: Exception) { "Fleench is currently not fleenching right now. Please try again." }
                 ui.post {
                     thinkShimmer.cancel()
                     thinkTv.paint.shader = null
@@ -1327,7 +1327,7 @@ class ExplainService : AccessibilityService() {
                         // AI only — no offline dictionary
                         Ai.define(prefs.key, selectedText, contextBlock, surroundingContext)
                     } catch (e: Exception) {
-                        "Could not reach AI. Check your connection."
+                        "Fleench is currently not fleenching right now. Check your connection and try again."
                     }
                     ui.post {
                         mainShimmer.cancel()
@@ -1342,7 +1342,7 @@ class ExplainService : AccessibilityService() {
                 Thread {
                     val reply = try {
                         Ai.explain(prefs.key, systemPrompt(surroundingContext), selectedText, contextBlock, surroundingContext)
-                    } catch (e: Exception) { "Could not reach AI. Check your connection." }
+                    } catch (e: Exception) { "Fleench is currently not fleenching right now. Check your connection and try again." }
                     ui.post {
                         mainShimmer.cancel()
                         initialThinkTv?.paint?.shader = null

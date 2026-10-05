@@ -24,7 +24,7 @@ object Ai {
     private val geminiKeyIndex = AtomicInteger(0)
 
     // ── Groq Caller ──────────────────────────────────────────────────────────
-    private fun callGroq(messages: JSONArray, maxTokens: Int = 400): String {
+    private fun callGroq(messages: JSONArray, maxTokens: Int = 500): String {
         for (m in listOf(GROQ_MODEL, GROQ_FALLBACK_MODEL)) {
             try {
                 val body = JSONObject().apply {
@@ -32,6 +32,7 @@ object Ai {
                     put("messages", messages)
                     put("max_tokens", maxTokens)
                     put("temperature", 0.3)
+                    put("reasoning_effort", "low")
                 }
                 val conn = URL("https://api.groq.com/openai/v1/chat/completions")
                     .openConnection() as HttpURLConnection
@@ -39,8 +40,8 @@ object Ai {
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
                 conn.setRequestProperty("Authorization", "Bearer $GROQ_KEY")
                 conn.setRequestProperty("User-Agent", "FleenchApp/1.0 (Android; Mobile)")
-                conn.connectTimeout = 8000
-                conn.readTimeout = 15000
+                conn.connectTimeout = 6000
+                conn.readTimeout = 10000
                 conn.doOutput = true
                 conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
@@ -60,7 +61,7 @@ object Ai {
         throw Exception("Groq failed.")
     }
 
-    // ── Gemini Caller (interactions API — multi-format response parser) ───────
+    // ── Gemini Caller (Standard generateContent API) ───────────────────────────
     private fun callGemini(customKey: String?, inputText: String): String {
         val keysToTry = if (!customKey.isNullOrBlank()) {
             listOf(customKey.trim()) + GEMINI_KEYS
@@ -71,18 +72,26 @@ object Ai {
         var lastError: Exception? = null
         for (k in keysToTry) {
             try {
-                val body = JSONObject().apply {
-                    put("model", GEMINI_MODEL)
-                    put("input", inputText)
-                }
-                val conn = URL("https://generativelanguage.googleapis.com/v1beta/interactions?key=$k")
+                val conn = URL("https://generativelanguage.googleapis.com/v1beta/models/$GEMINI_MODEL:generateContent?key=$k")
                     .openConnection() as HttpURLConnection
                 conn.requestMethod = "POST"
                 conn.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                conn.setRequestProperty("x-goog-api-key", k)
-                conn.connectTimeout = 10000
-                conn.readTimeout = 20000
+                conn.connectTimeout = 6000
+                conn.readTimeout = 10000
                 conn.doOutput = true
+
+                val body = JSONObject().apply {
+                    val contents = JSONArray().apply {
+                        put(JSONObject().apply {
+                            val parts = JSONArray().apply {
+                                put(JSONObject().put("text", inputText))
+                            }
+                            put("parts", parts)
+                        })
+                    }
+                    put("contents", contents)
+                }
+
                 conn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 
                 val code = conn.responseCode
@@ -91,35 +100,16 @@ object Ai {
 
                 if (code in 200..299) {
                     val root = JSONObject(responseText)
-
-                    val outputText = root.optString("output_text", "")
-                    if (outputText.isNotBlank()) return outputText.trim()
-
                     val candidates = root.optJSONArray("candidates")
                     if (candidates != null && candidates.length() > 0) {
-                        val content = candidates.getJSONObject(0).optJSONObject("content")
+                        val cand = candidates.getJSONObject(0)
+                        val content = cand.optJSONObject("content")
                         val parts = content?.optJSONArray("parts")
                         if (parts != null && parts.length() > 0) {
                             val t = parts.getJSONObject(0).optString("text", "")
                             if (t.isNotBlank()) return t.trim()
                         }
                     }
-
-                    // interactions API 2026 steps format
-                    val steps = root.optJSONArray("steps")
-                    if (steps != null) {
-                        for (i in 0 until steps.length()) {
-                            val step = steps.optJSONObject(i) ?: continue
-                            if (step.optString("type") == "model_output") {
-                                val contentArr = step.optJSONArray("content")
-                                if (contentArr != null && contentArr.length() > 0) {
-                                    val t = contentArr.getJSONObject(0).optString("text", "")
-                                    if (t.isNotBlank()) return t.trim()
-                                }
-                            }
-                        }
-                    }
-                    return "No explanation generated."
                 } else {
                     geminiKeyIndex.incrementAndGet()
                     lastError = Exception("Gemini error ($code): ${responseText.take(100)}")
@@ -170,22 +160,14 @@ object Ai {
         val today = LocalDate.now().toString()
         val prompt = buildString {
             append("Define \"${word.trim()}\" for the user.\n")
-            append("IMPORTANT: Always give a definition. The word may be:\n")
-            append("- A standard English dictionary word\n")
-            append("- Slang or informal language (e.g. 'larpy', 'slay', 'bussin', 'rizz')\n")
-            append("- An internet/social media term (e.g. 'ratio', 'NPC', 'based', 'mid')\n")
-            append("- A neologism, portmanteau, or made-up word\n")
-            append("- A name, brand, acronym, or abbreviation\n")
-            append("Never say 'I cannot define this' or 'this is not a standard word'. ")
-            append("If it's slang or informal, explain what it means in that usage. ")
-            append("If the term specifically inquires about real-time live events or current corporate ownership, note briefly in one sentence that Fleench provides reading explanations and does not fetch real-time live web data.\n")
+            append("IMPORTANT: Always give a definition. The word may be a standard word, slang, internet term, abbreviation, brand, or name — never refuse.\n")
             if (contextSnippet.isNotBlank()) {
-                append("Context it appeared in: \"${contextSnippet.take(800).trim()}\"\n")
+                append("Context: \"${contextSnippet.take(600).trim()}\"\n")
             }
             if (surroundingContext.isNotBlank() && surroundingContext != contextSnippet) {
-                append("Surrounding context: \"${surroundingContext.take(1200).trim()}\"\n")
+                append("Surrounding text: \"${surroundingContext.take(800).trim()}\"\n")
             }
-            append("\nFormat:\n")
+            append("\nFormat concisely:\n")
             append("**[pronunciation if applicable] • [part of speech / type]**\n")
             append("[Clear 1-2 sentence definition or explanation]\n\n")
             if (contextSnippet.isNotBlank()) append("**In context:** [what it means here specifically]\n\n")
@@ -198,10 +180,10 @@ object Ai {
         try {
             val messages = JSONArray().apply {
                 put(JSONObject().put("role", "system").put("content",
-                    "Today is $today. You are a comprehensive language assistant. You define ALL words — standard, slang, internet terms, informal, made-up — never refuse."))
+                    "Today is $today. You are a fast, comprehensive language assistant. You define ALL words concisely — never refuse."))
                 put(JSONObject().put("role", "user").put("content", prompt))
             }
-            return callGroq(messages, maxTokens = 380)
+            return callGroq(messages, maxTokens = 500)
         } catch (_: Exception) {}
 
         // 2. Gemini fallback
@@ -210,7 +192,7 @@ object Ai {
         } catch (_: Exception) {}
 
         // No offline dictionary
-        return "Could not reach AI right now. Check your connection and try again."
+        return "Fleench is currently not fleenching right now. Check your connection and try again."
     }
 
     // ── Multi-word / Phrase Explanation ─────────────────────────────────────
@@ -243,7 +225,7 @@ object Ai {
                 }
                 put(JSONObject().put("role", "user").put("content", prompt))
             }
-            return callGroq(messages, maxTokens = 400)
+            return callGroq(messages, maxTokens = 500)
         } catch (_: Exception) {}
 
         // 2. Gemini fallback
@@ -255,6 +237,6 @@ object Ai {
             return callGemini(customKey, geminiPrompt.trim())
         } catch (_: Exception) {}
 
-        return "Could not reach AI right now. Check your connection and try again."
+        return "Fleench is currently not fleenching right now. Check your connection and try again."
     }
 }

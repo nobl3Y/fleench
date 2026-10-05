@@ -320,7 +320,7 @@ class AskActivity : Activity() {
             val reply = try {
                 Ai.chat(prefs.key, sysPrompt, history)
             } catch (e: Exception) {
-                "Could not reach AI: ${e.message}"
+                "Fleench is currently not fleenching right now. Please try again."
             }
 
             runOnUiThread {
